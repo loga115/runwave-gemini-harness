@@ -4,6 +4,13 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { normalizeTargetKind } = require('./controller/src/protocol');
+const {
+  chatCompletion,
+  resolveApiKey,
+  resolveBaseUrl,
+  resolveModel,
+} = require('./agent/src/model-client');
+const { normalizePromptMode } = require('./agent/src/prompt');
 
 const DEFAULT_PLAYTEST_DURATION_MS = 150000;
 
@@ -15,13 +22,17 @@ function mkdirp(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
-function assertGameDir(gameDir) {
-  const startScript = path.join(gameDir, 'start.sh');
-  const playtestMd = path.join(gameDir, 'playtest.md');
+function assertTargetDir(targetDir) {
+  const startScript = path.join(targetDir, 'start.sh');
+  const playtestMd = path.join(targetDir, 'playtest.md');
   if (!fs.existsSync(startScript)) throw new Error(`game directory missing start.sh: ${startScript}`);
   if (!fs.existsSync(playtestMd)) throw new Error(`game directory missing playtest.md: ${playtestMd}`);
   return { startScript, playtestMd };
 }
+
+// Keep the old internal name available to downstream code that may have
+// required it indirectly, while using provider-neutral terminology here.
+const assertGameDir = assertTargetDir;
 
 function loadPlaytestInstructions(playtestMd) {
   return fs.readFileSync(playtestMd, 'utf8');
@@ -93,8 +104,8 @@ function validateRecordingArtifact(stopResponse) {
   return { path: video, bytes: stat.size };
 }
 
-function buildAgentJob({ playtestDurationMs, minPlaytestMs, viewport, playtestInstructions, start = {} }) {
-  return {
+function buildAgentJob({ playtestDurationMs, minPlaytestMs, viewport, playtestInstructions, start = {}, promptMode }) {
+  const job = {
     playtestDurationMs,
     agentMinPlaytestMs: minPlaytestMs ?? Math.max(0, playtestDurationMs - 10000),
     viewport,
@@ -103,6 +114,8 @@ function buildAgentJob({ playtestDurationMs, minPlaytestMs, viewport, playtestIn
     markGridRows: start.markGridRows,
     markGridCols: start.markGridCols,
   };
+  if (promptMode) job.promptMode = promptMode;
+  return job;
 }
 
 function responseState(response) {
@@ -161,9 +174,12 @@ function controllerArgs(controllerBin, action, verbose) {
 async function runPlaytest(options) {
   const {
     gameDir,
+    applicationDir,
     outDir,
     port,
+    apiKey,
     openRouterApiKey,
+    baseUrl,
     playtestDurationMs = DEFAULT_PLAYTEST_DURATION_MS,
     minPlaytestMs,
     model,
@@ -180,16 +196,16 @@ async function runPlaytest(options) {
   } = options || {};
 
   const targetKind = normalizeTargetKind(kind ?? requestedTargetKind ?? gameKind ?? startOverrides.kind ?? startOverrides.targetKind);
-  if (!gameDir) throw new Error('runPlaytest: gameDir is required');
+  const targetDir = applicationDir || gameDir;
+  if (!targetDir) throw new Error('runPlaytest: gameDir (or applicationDir) is required');
   if (!outDir) throw new Error('runPlaytest: outDir is required');
   if (targetKind === 'web' && !port) throw new Error('runPlaytest: port is required for web games');
-  if (!openRouterApiKey) throw new Error('runPlaytest: openRouterApiKey is required');
   if (!viewport || !Number.isFinite(viewport.width) || !Number.isFinite(viewport.height) || viewport.width <= 0 || viewport.height <= 0) {
     throw new Error('runPlaytest: viewport {width,height} is required');
   }
 
   const log = typeof onLog === 'function' ? onLog : defaultLog;
-  const absoluteGameDir = path.resolve(gameDir);
+  const absoluteGameDir = path.resolve(targetDir);
   const absoluteOutDir = path.resolve(outDir);
   mkdirp(absoluteOutDir);
 
@@ -203,22 +219,37 @@ async function runPlaytest(options) {
   const env = {
     ...process.env,
     ...envOverrides,
-    OPENROUTER_API_KEY: openRouterApiKey,
     RUNWAVE_WORKSPACE: absoluteOutDir,
     RUNWAVE_SESSION_DIR: path.join(absoluteOutDir, '.runwave-sessions'),
   };
+  // Explicit options win over inherited environment values.  The generic
+  // names are used by the new client; retain OPENROUTER_API_KEY when the
+  // legacy option was supplied so older controller integrations keep working.
+  if (apiKey || openRouterApiKey) env.RUNWAVE_API_KEY = String(apiKey || openRouterApiKey);
+  if (openRouterApiKey && !apiKey) env.OPENROUTER_API_KEY = String(openRouterApiKey);
+  if (baseUrl) env.RUNWAVE_BASE_URL = String(baseUrl);
   if (model) env.RUNWAVE_AGENT_MODEL = String(model);
   if (verbose) env.RUNWAVE_VERBOSE = '1';
+
+  const promptMode = normalizePromptMode(env.RUNWAVE_PROMPT_MODE || env.RUNWAVE_PROMPT_PROFILE);
+  const resolvedBaseUrl = resolveBaseUrl(env);
+  const resolvedApiKey = resolveApiKey(env, resolvedBaseUrl);
+  if (!resolvedApiKey) {
+    throw new Error('runPlaytest: model API key is required (set RUNWAVE_API_KEY or a provider-specific key)');
+  }
+  const resolvedModel = resolveModel(env, null, resolvedBaseUrl);
 
   const runwaveSessionId = sessionId || `playtest-${Date.now()}`;
   const summary = {
     gameDir: absoluteGameDir,
+    applicationDir: absoluteGameDir,
     outDir: absoluteOutDir,
     targetKind,
     ...(targetKind === 'web' ? { port } : {}),
     playtestDurationMs,
     minPlaytestMs: minPlaytestMs ?? Math.max(0, playtestDurationMs - 10000),
-    model: model || env.RUNWAVE_AGENT_MODEL || env.OPENROUTER_MODEL || null,
+    model: resolvedModel,
+    promptMode,
     sessionId: runwaveSessionId,
     startedAt: new Date().toISOString(),
     status: 'running',
@@ -261,6 +292,7 @@ async function runPlaytest(options) {
       playtestInstructions,
       start,
       minPlaytestMs,
+      promptMode,
     });
 
     const playtest = await runAgenticPlaytest({
@@ -268,6 +300,13 @@ async function runPlaytest(options) {
       initialResponse,
       runAction: runControllerAction,
       outputDir: path.join(absoluteOutDir, 'agent'),
+      modelClient: (request) => chatCompletion({
+        ...request,
+        apiKey: resolvedApiKey,
+        baseUrl: resolvedBaseUrl,
+        model: resolvedModel,
+        env,
+      }),
       log,
     });
 

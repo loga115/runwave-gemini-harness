@@ -1,6 +1,8 @@
 # Runwave
 
-Runwave is an agentic harness which allows a VLM to play video games
+Runwave is an agentic harness which allows a VLM to explore and interact with
+browser-based applications while capturing a reproducible video and action
+history.
 
 ![](/assets/architecture.png)
 
@@ -10,19 +12,31 @@ It includes remote stress testing code (`./stress-test`) as a first class compon
 
 Runwave supports two target types:
 
-- browser games served to Chromium
-- native Linux games that open an X11 window
+- web applications served to Chromium
+- native Linux applications that open an X11 window
 
 ## Limitations
 
-Runwave is still best suited to games that:
+Runwave is still best suited to interactive applications that:
 
 - can run in a browser or in a normal Linux/X11 window
 - can run on the available server graphics stack
 - do not involve a lot of precise clicks
 - do not require reaction speeds of < 2 seconds
 
-Currently the agent can only use openrouter as its model provider.
+OpenRouter is the default model provider. The agent also accepts any endpoint
+that implements the OpenAI Chat Completions API. Set `RUNWAVE_BASE_URL` and
+`RUNWAVE_API_KEY` for a generic endpoint, or use the corresponding provider
+environment variables (`OPENAI_API_KEY`, `GEMINI_API_KEY`, or the legacy
+`OPENROUTER_API_KEY`). Set `RUNWAVE_AGENT_MODEL` (or the provider-specific
+model variable) to choose the model. With no override, OpenRouter uses
+`google/gemini-3.8-flash`; the direct Gemini endpoint uses `gemini-3.8-flash`.
+
+The legacy web-game prompt is the default (`RUNWAVE_PROMPT_MODE=webgame`) so
+existing delivered tasks keep their previous behavior. For a simulation or
+other interactive website, set `RUNWAVE_PROMPT_MODE=webapp` (the aliases
+`website` and `generic` are also accepted). This changes the VLM's guidance,
+not the controller, action schema, or recording format.
 
 ## Requirements
 
@@ -69,15 +83,26 @@ RUN npx playwright install --with-deps chromium
 The public CLI runs an end-to-end playtest:
 
 ```sh
-runwave --game-dir ./game --out-dir ./artifacts --port 3000 --viewport 1280x720
+runwave --game-dir ./app --out-dir ./artifacts --port 3000 --viewport 1280x720
 ```
 
-For a native Linux game, put a `start.sh` beside `playtest.md`. The script
-should launch the game in the current X11 display and keep running until the
-game exits. `--port` is not used:
+`--game-dir` is retained as a compatibility name; `--app-dir` is an alias.
+The directory must contain an executable `start.sh` and a `playtest.md` guide.
+For example, a direct Gemini-compatible setup is:
 
 ```sh
-runwave --kind linux --game-dir ./linux-game --out-dir ./artifacts --viewport 1280x720
+RUNWAVE_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai \
+RUNWAVE_API_KEY="$GEMINI_API_KEY" \
+RUNWAVE_AGENT_MODEL=gemini-3.8-flash \
+runwave --app-dir ./app --out-dir ./artifacts --port 3000 --viewport 1280x720
+```
+
+For a native Linux application, put a `start.sh` beside `playtest.md`. The
+script should launch the application in the current X11 display and keep
+running until it exits. `--port` is not used:
+
+```sh
+runwave --kind linux --app-dir ./linux-app --out-dir ./artifacts --viewport 1280x720
 ```
 
 `--kind` is only a controller routing setting. The agent still receives the same

@@ -44,6 +44,8 @@ class RunPlaytestTests(unittest.TestCase):
                 (out_dir / "call.json").write_text(json.dumps({
                     "args": args,
                     "openrouter": os.environ.get("OPENROUTER_API_KEY"),
+                    "runwave_api_key": os.environ.get("RUNWAVE_API_KEY"),
+                    "runwave_base_url": os.environ.get("RUNWAVE_BASE_URL"),
                     "extra": os.environ.get("RUNWAVE_TEST_EXTRA"),
                 }), encoding="utf-8")
                 print('{"event":"start","ok":true}', flush=True)
@@ -78,6 +80,7 @@ class RunPlaytestTests(unittest.TestCase):
             self.assertEqual(result.out_dir, out_dir.resolve())
             self.assertEqual(result.exit_code, 0)
             self.assertEqual(call["openrouter"], "secret-key")
+            self.assertEqual(call["runwave_api_key"], "secret-key")
             self.assertEqual(call["extra"], "extra-value")
             self.assertEqual(
                 call["args"],
@@ -96,11 +99,11 @@ class RunPlaytestTests(unittest.TestCase):
             )
             self.assertEqual(logs, [{"event": "start", "ok": True}, {"raw": "plain log line"}])
 
-    def test_run_playtest_requires_openrouter_api_key(self) -> None:
+    def test_run_playtest_requires_model_api_key(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             root_path = Path(root)
             with mock.patch.dict(os.environ, {}, clear=True):
-                with self.assertRaisesRegex(ValueError, "OPENROUTER_API_KEY is required"):
+                with self.assertRaisesRegex(ValueError, "model API key is required"):
                     run_playtest(
                         game_dir=root_path / "game",
                         out_dir=root_path / "out",
@@ -204,6 +207,46 @@ class RunPlaytestTests(unittest.TestCase):
                     "--viewport", "1280x720",
                 ],
             )
+
+    def test_run_playtest_accepts_generic_endpoint_and_api_key(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            game_dir = root_path / "app"
+            out_dir = root_path / "out"
+            game_dir.mkdir()
+            cli = _write_fake_cli(
+                root_path,
+                """
+                import json
+                import os
+                import sys
+                from pathlib import Path
+
+                args = sys.argv[1:]
+                out_dir = Path(args[args.index("--out-dir") + 1])
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "call.json").write_text(json.dumps({
+                    "args": args,
+                    "api_key": os.environ.get("RUNWAVE_API_KEY"),
+                    "base_url": os.environ.get("RUNWAVE_BASE_URL"),
+                }), encoding="utf-8")
+                (out_dir / "summary.json").write_text(json.dumps({"status": "passed"}), encoding="utf-8")
+                """,
+            )
+
+            run_playtest(
+                game_dir=game_dir,
+                out_dir=out_dir,
+                port=4011,
+                api_key="generic-key",
+                base_url="https://example.test/v1",
+                cli_path=cli,
+            )
+
+            call = json.loads((out_dir / "call.json").read_text(encoding="utf-8"))
+            self.assertEqual(call["api_key"], "generic-key")
+            self.assertEqual(call["base_url"], "https://example.test/v1")
+            self.assertIn("--base-url", call["args"])
 
 
 if __name__ == "__main__":

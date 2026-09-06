@@ -60,6 +60,8 @@ def run_playtest(
     out_dir: PathLike,
     port: Optional[int] = None,
     target_kind: str = "web",
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
     openrouter_api_key: Optional[str] = None,
     viewport: Optional[Mapping[str, int]] = None,
     playtest_duration_ms: Optional[int] = None,
@@ -76,19 +78,27 @@ def run_playtest(
     Parameters
     ----------
     game_dir:
-        Path to the game directory. Must contain ``start.sh`` and ``playtest.md``.
+        Path to the web application directory. Must contain ``start.sh`` and
+        ``playtest.md``.
     out_dir:
         Directory for artifacts (video, screenshots, agent history, summary.json).
         Created if it does not exist.
     port:
         Port passed to ``start.sh`` via ``PORT=`` and used as
-        ``http://127.0.0.1:<port>/``. Required for web games; ignored for
-        native Linux games.
+        ``http://127.0.0.1:<port>/``. Required for web applications; ignored
+        for native Linux applications.
     target_kind:
-        ``"web"`` for browser games or ``"linux"`` for native Linux games.
+        ``"web"`` for browser applications or ``"linux"`` for native Linux
+        applications.
+    api_key:
+        Generic API key for the selected OpenAI-compatible model endpoint. If
+        omitted, a provider-specific key in the environment is used.
+    base_url:
+        Optional OpenAI-compatible endpoint URL. OpenRouter is the default;
+        this value is exported as ``RUNWAVE_BASE_URL``.
     openrouter_api_key:
-        OpenRouter API key. If omitted, ``OPENROUTER_API_KEY`` must already be
-        in the environment (or in ``env``).
+        Backward-compatible alias for ``api_key``. If supplied, it also sets
+        ``OPENROUTER_API_KEY`` for older callers.
     viewport:
         Browser viewport and video size as ``{"width": 1280, "height": 720}``.
     playtest_duration_ms:
@@ -99,13 +109,14 @@ def run_playtest(
         Native Linux only. Milliseconds to wait after launch before the first
         agent call. Defaults to RunWave's Linux controller default.
     model:
-        OpenRouter model slug. Sets ``RUNWAVE_AGENT_MODEL`` for the CLI.
+        Model identifier. Sets ``RUNWAVE_AGENT_MODEL`` for the CLI.
     verbose:
         Forwards ``--verbose`` to the CLI (runwave harness ndjson timing log).
     cli_path:
         Explicit path to ``runwave``. Otherwise looked up on ``PATH``.
     env:
-        Extra environment variables to merge into the CLI's environment.
+        Extra environment variables to merge into the CLI's environment. This
+        is also where ``RUNWAVE_PROMPT_MODE=webapp`` can be selected.
     on_log:
         If provided, called with one parsed ndjson dict per stdout line. Lines
         that are not JSON are passed as ``{"raw": <line>}``. When omitted,
@@ -123,7 +134,7 @@ def run_playtest(
     FileNotFoundError
         If the CLI cannot be located.
     ValueError
-        If no OpenRouter API key is available.
+        If no model API key is available.
     """
     resolved_cli = _resolve_cli(cli_path)
     game_dir_path = Path(game_dir).resolve()
@@ -146,6 +157,8 @@ def run_playtest(
         args += ["--min-playtest-ms", str(min_playtest_ms)]
     if launch_settle_ms is not None:
         args += ["--launch-settle-ms", str(launch_settle_ms)]
+    if base_url:
+        args += ["--base-url", base_url]
     if model:
         args += ["--model", model]
     if verbose:
@@ -154,12 +167,31 @@ def run_playtest(
     resolved_env: dict[str, str] = dict(os.environ)
     if env:
         resolved_env.update(env)
-    if openrouter_api_key:
+    supplied_api_key = api_key or openrouter_api_key
+    if supplied_api_key:
+        resolved_env["RUNWAVE_API_KEY"] = supplied_api_key
+    if openrouter_api_key and not api_key:
+        # Preserve the old environment contract for callers that still use
+        # the explicitly named legacy argument.
         resolved_env["OPENROUTER_API_KEY"] = openrouter_api_key
-    if not resolved_env.get("OPENROUTER_API_KEY"):
+    if base_url:
+        resolved_env["RUNWAVE_BASE_URL"] = base_url
+
+    key_available = any(
+        resolved_env.get(name)
+        for name in (
+            "RUNWAVE_API_KEY",
+            "OPENROUTER_API_KEY",
+            "RUNWAVE_OPENROUTER_API_KEY",
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+        )
+    )
+    if not key_available:
         raise ValueError(
-            "OPENROUTER_API_KEY is required; pass openrouter_api_key=... or set "
-            "it in the environment / env=... mapping."
+            "a model API key is required; pass api_key=... (or the legacy "
+            "openrouter_api_key=...) or set RUNWAVE_API_KEY / a provider-specific "
+            "key in the environment / env=... mapping."
         )
 
     with subprocess.Popen(

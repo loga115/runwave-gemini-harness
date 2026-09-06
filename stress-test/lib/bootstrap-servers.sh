@@ -50,15 +50,17 @@ runwave_bootstrap_prepare_games() {
 }
 
 runwave_bootstrap_write_env() {
-  awk -F':[[:space:]]*' '
+  awk '
     /^[[:space:]]*#/ { next }
     /^[[:space:]]*$/ { next }
     {
-      key=$1
-      val=$2
+      separator = index($0, ":")
+      if (!separator) next
+      key = substr($0, 1, separator - 1)
+      val = substr($0, separator + 1)
       gsub(/^[[:space:]"'\''"]+|[[:space:]"'\''"]+$/, "", key)
       gsub(/^[[:space:]"'\''"]+|[[:space:]"'\''"]+$/, "", val)
-      if (key ~ /^(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|AWS_DEFAULT_REGION|OPENAI_API_KEY|ANTHROPIC_API_KEY|OPENROUTER_API_KEY|PARSEWAVE_API_TOKEN|PARSEWAVE_API_TOKEN3|PARSEWAVE_API_TOKEN4|PARSEWAVE_API_TOKEN5|GH_TOKEN|GITHUB_ACCESS_TOKEN)$/ && val != "") {
+      if (key ~ /^(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|AWS_DEFAULT_REGION|OPENAI_API_KEY|OPENAI_BASE_URL|OPENAI_MODEL|ANTHROPIC_API_KEY|OPENROUTER_API_KEY|OPENROUTER_BASE_URL|OPENROUTER_MODEL|GEMINI_API_KEY|GEMINI_MODEL|RUNWAVE_API_KEY|RUNWAVE_BASE_URL|RUNWAVE_AGENT_MODEL|RUNWAVE_PROMPT_MODE|RUNWAVE_PROMPT_PROFILE|RUNWAVE_HTTP_REFERER|RUNWAVE_OPENAI_BASE_URL|RUNWAVE_OPENROUTER_API_KEY|PARSEWAVE_API_TOKEN|PARSEWAVE_API_TOKEN3|PARSEWAVE_API_TOKEN4|PARSEWAVE_API_TOKEN5|GH_TOKEN|GITHUB_ACCESS_TOKEN)$/ && val != "") {
         gsub(/'\''/, "'\''\"'\''\"'\''", val)
         printf "export %s='\''%s'\''\n", key, val
       }

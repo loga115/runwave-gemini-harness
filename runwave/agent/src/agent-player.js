@@ -128,8 +128,8 @@ function failedActionAfterInvalidJson({ error }) {
     actions: [],
     shouldStop: false,
     summary: schemaError
-      ? 'Failed action: the model returned a sequence that did not match the action schema, so no gameplay input was sent.'
-      : 'Failed action: the model returned invalid JSON, so no gameplay input was sent.',
+      ? 'Failed action: the model returned a sequence that did not match the action schema, so no application input was sent.'
+      : 'Failed action: the model returned invalid JSON, so no application input was sent.',
     previousSequenceOutcome: '',
     rationale: `Record the model output failure, keep the current screenshot and state unchanged, and ask for a new valid JSON action sequence. Error: ${message}`,
     failedAction: true,

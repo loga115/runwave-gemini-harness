@@ -3,6 +3,7 @@
 
 const path = require('path');
 const { runPlaytest } = require('./index');
+const { resolveApiKey } = require('./agent/src/model-client');
 
 function usage() {
   return [
@@ -11,21 +12,28 @@ function usage() {
     '  runwave --kind linux --game-dir <path> --out-dir <path> --viewport <width>x<height> [options]',
     '',
     'Required:',
-    '  --game-dir <path>            directory containing start.sh and playtest.md',
+    '  --game-dir <path>            web application directory containing start.sh and playtest.md',
+    '  --app-dir <path>             alias for --game-dir',
     '  --out-dir <path>             directory for artifacts (video, screenshots, agent history, summary.json)',
     '  --port <n>                   web mode only: port passed to start.sh via PORT= and used as http://127.0.0.1:<port>/',
     '  --viewport <width>x<height>  browser viewport and video size, e.g. 1280x720',
     '',
     'Environment:',
-    '  OPENROUTER_API_KEY           required; forwarded to the agent',
-    '  OPENROUTER_MODEL             optional model override (or use --model)',
+    '  RUNWAVE_API_KEY              optional generic API key (provider-specific keys are also supported)',
+    '  RUNWAVE_BASE_URL             optional OpenAI-compatible endpoint (defaults to OpenRouter)',
+    '  RUNWAVE_AGENT_MODEL          optional model identifier (or use --model)',
+    '  RUNWAVE_PROMPT_MODE          webgame (default) or webapp/generic',
+    '  RUNWAVE_HTTP_REFERER         optional OpenRouter attribution URL',
+    '  OPENROUTER_API_KEY           legacy default-provider key',
+    '  OPENROUTER_MODEL             legacy default-provider model override',
     '',
     'Options:',
     '  --kind <web|linux>           target kind (default web)',
     '  --playtest-duration-ms <n>   max playtest wall time in ms (default 150000)',
     '  --min-playtest-ms <n>        floor before the agent may self-stop (default duration - 10000)',
     '  --launch-settle-ms <n>       linux only: wait after launch before first agent call (default 30000)',
-    '  --model <slug>               OpenRouter model slug (sets RUNWAVE_AGENT_MODEL)',
+    '  --base-url <url>             OpenAI-compatible endpoint override',
+    '  --model <id>                 model identifier (sets RUNWAVE_AGENT_MODEL)',
     '  --verbose, -v                forward verbose flag to the runwave controller',
     '  --help, -h                   show this help',
   ].join('\n');
@@ -44,7 +52,7 @@ function parseArgs(argv) {
     const next = () => argv[++i];
     if (arg === '--help' || arg === '-h') { out.help = true; continue; }
     if (arg === '--verbose' || arg === '-v') { out.verbose = true; continue; }
-    if (arg === '--game-dir') { out.gameDir = next(); continue; }
+    if (arg === '--game-dir' || arg === '--app-dir') { out.gameDir = next(); continue; }
     if (arg === '--out-dir') { out.outDir = next(); continue; }
     if (arg === '--port') { out.port = Number(next()); continue; }
     if (arg === '--kind') { out.kind = next(); continue; }
@@ -52,6 +60,7 @@ function parseArgs(argv) {
     if (arg === '--playtest-duration-ms') { out.playtestDurationMs = Number(next()); continue; }
     if (arg === '--min-playtest-ms') { out.minPlaytestMs = Number(next()); continue; }
     if (arg === '--launch-settle-ms') { out.startOverrides.launchSettleMs = Number(next()); continue; }
+    if (arg === '--base-url') { out.baseUrl = next(); continue; }
     if (arg === '--model') { out.model = next(); continue; }
     throw new Error(`unknown argument: ${arg}`);
   }
@@ -69,8 +78,10 @@ async function main() {
   if (!args.outDir) missing.push('--out-dir');
   if (!['linux', 'native'].includes(String(args.kind || 'web').toLowerCase()) && !args.port) missing.push('--port');
   if (!args.viewport) missing.push('--viewport');
-  const openRouterApiKey = process.env.OPENROUTER_API_KEY;
-  if (!openRouterApiKey) missing.push('OPENROUTER_API_KEY');
+  const resolutionEnv = { ...process.env };
+  if (args.baseUrl) resolutionEnv.RUNWAVE_BASE_URL = args.baseUrl;
+  const apiKey = resolveApiKey(resolutionEnv, args.baseUrl || null);
+  if (!apiKey) missing.push('RUNWAVE_API_KEY (or a provider-specific API key)');
   if (missing.length) {
     process.stderr.write(`missing required: ${missing.join(', ')}\n\n${usage()}\n`);
     process.exit(2);
@@ -82,7 +93,8 @@ async function main() {
     port: args.port,
     kind: args.kind,
     viewport: args.viewport,
-    openRouterApiKey,
+    apiKey,
+    baseUrl: args.baseUrl,
     playtestDurationMs: args.playtestDurationMs,
     minPlaytestMs: args.minPlaytestMs,
     model: args.model,

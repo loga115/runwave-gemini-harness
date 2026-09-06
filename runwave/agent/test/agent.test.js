@@ -9,8 +9,19 @@ const { PNG } = require('pngjs');
 
 const { normalizeSequence } = require('../src/action-parser');
 const { actionsWithinDuration, failedActionAfterInvalidJson, runAgenticPlaytest } = require('../src/agent-player');
-const { chatCompletion, parseJsonResponse } = require('../src/model-client');
-const { buildPlaytesterPrompt, compactHistory, sequenceSchemaGuide } = require('../src/prompt');
+const {
+  chatCompletion,
+  parseJsonResponse,
+  resolveApiKey,
+  resolveBaseUrl,
+  resolveModel,
+} = require('../src/model-client');
+const {
+  buildPlaytesterPrompt,
+  compactHistory,
+  normalizePromptMode,
+  sequenceSchemaGuide,
+} = require('../src/prompt');
 const { drawMarkGridOnScreenshot } = require('../../controller/src/grid-overlay');
 const { gridSafeSampleRatio, randomPointInCells } = require('../../protocol/src/mark-grid');
 const { normalizeStep } = require('../../controller/src/step-normalizer');
@@ -169,7 +180,7 @@ test('rejects model sequence fields outside the canonical schema', () => {
   );
 });
 
-test('rejects model sequences that cannot produce gameplay actions', () => {
+test('rejects model sequences that cannot produce application actions', () => {
   assert.throws(
     () => normalizeSequence([], { viewport: { width: 800, height: 800 } }),
     /model sequence must be a plain object/
@@ -976,7 +987,7 @@ test('sequence schema guide uses configured overlay row and column grid examples
 
 test('playtester prompt stays platform-neutral even if the job has a target kind', () => {
   const prompt = buildPlaytesterPrompt({
-    job: { targetKind: 'linux' },
+    job: { targetKind: 'linux', promptMode: 'webapp' },
     elapsedMs: 10000,
     maxMs: 120000,
     viewport: { width: 1280, height: 720 },
@@ -984,19 +995,52 @@ test('playtester prompt stays platform-neutral even if the job has a target kind
     history: [],
   });
 
-  assert.match(prompt, /agentic game playtester/);
-  assert.match(prompt, /Game state JSON/);
-  assert.match(prompt, /playable view/);
+  assert.match(prompt, /agentic interactive web-application tester/);
+  assert.match(prompt, /Application state JSON/);
+  assert.match(prompt, /active view/);
   assert.match(prompt, /normal RunWave key names/);
   assert.doesNotMatch(prompt, /native Linux/);
   assert.doesNotMatch(prompt, /browser-game/);
   assert.doesNotMatch(prompt, /Playwright/);
   assert.doesNotMatch(prompt, /xdotool/);
+  assert.doesNotMatch(prompt, /\bgame\b/i);
 });
 
-test('playtester prompt includes game-specific playtest instructions', () => {
+test('prompt mode defaults to legacy web-game guidance and can be selected from the environment', () => {
+  const originalMode = process.env.RUNWAVE_PROMPT_MODE;
+  try {
+    delete process.env.RUNWAVE_PROMPT_MODE;
+    assert.equal(normalizePromptMode(), 'webgame');
+    process.env.RUNWAVE_PROMPT_MODE = 'webapp';
+    assert.equal(normalizePromptMode(), 'webapp');
+    assert.equal(normalizePromptMode('website'), 'webapp');
+    assert.equal(normalizePromptMode('unknown-mode'), 'webgame');
+  } finally {
+    if (originalMode === undefined) delete process.env.RUNWAVE_PROMPT_MODE;
+    else process.env.RUNWAVE_PROMPT_MODE = originalMode;
+  }
+});
+
+test('default prompt preserves the legacy web-game profile', () => {
+  const prompt = buildPlaytesterPrompt({
+    job: { playtestInstructions: '- Start: Enter.' },
+    elapsedMs: 10000,
+    maxMs: 120000,
+    viewport: { width: 1280, height: 720 },
+    state: {},
+    history: [],
+  });
+
+  assert.match(prompt, /You are an agentic game playtester/);
+  assert.match(prompt, /create a useful gameplay video/);
+  assert.match(prompt, /Game-specific playtest\.md:/);
+  assert.doesNotMatch(prompt, /interactive web-application tester/);
+});
+
+test('playtester prompt includes application-specific playtest instructions', () => {
   const prompt = buildPlaytesterPrompt({
     job: {
+      promptMode: 'webapp',
       playtestInstructions: [
         '# Playtest Controls',
         '',
@@ -1011,10 +1055,10 @@ test('playtester prompt includes game-specific playtest instructions', () => {
     history: [],
   });
 
-  assert.match(prompt, /Game-specific playtest\.md:/);
+  assert.match(prompt, /Application-specific playtest\.md:/);
   assert.match(prompt, /- Start: Enter\./);
   assert.match(prompt, /- Move: WASD\./);
-  assert.match(prompt, /Use these game-specific controls/);
+  assert.match(prompt, /Use these application-specific controls/);
 });
 
 test('playtester prompt warns when recent sequences repeat a control cycle up to 5 steps', () => {
@@ -1140,5 +1184,69 @@ test('chat completion honors explicit retry attempts for malformed JSON', async 
     global.fetch = originalFetch;
     if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY;
     else process.env.OPENROUTER_API_KEY = originalKey;
+  }
+});
+
+test('model client keeps OpenRouter as the default provider', () => {
+  assert.equal(resolveBaseUrl({}), 'https://openrouter.ai/api/v1');
+  assert.equal(resolveApiKey({ OPENROUTER_API_KEY: 'router-key' }), 'router-key');
+  assert.equal(
+    resolveApiKey({
+      RUNWAVE_BASE_URL: 'https://example.test/v1',
+      OPENROUTER_API_KEY: 'router-key',
+    }),
+    null
+  );
+  assert.equal(resolveModel({}), 'google/gemini-3.8-flash');
+  assert.equal(
+    resolveModel({ RUNWAVE_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai' }),
+    'gemini-3.8-flash'
+  );
+  assert.equal(
+    resolveModel({
+      RUNWAVE_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      OPENROUTER_MODEL: 'wrong-provider-model',
+      GEMINI_MODEL: 'gemini-custom',
+    }),
+    'gemini-custom'
+  );
+});
+
+test('model client sends provider-neutral requests to an OpenAI-compatible endpoint', async () => {
+  const originalFetch = global.fetch;
+  const requests = [];
+  const env = {
+    RUNWAVE_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    GEMINI_API_KEY: 'gemini-key',
+    OPENROUTER_API_KEY: 'router-key-that-must-not-be-used',
+    RUNWAVE_AGENT_MODEL: 'explicit-custom-model',
+    RUNWAVE_AGENT_MODEL_ATTEMPTS: '1',
+  };
+  global.fetch = async (url, options) => {
+    requests.push({ url, options });
+    return {
+      ok: true,
+      text: async () => JSON.stringify({
+        choices: [{ message: { content: '{"summary":"ok","actions":[]}' } }],
+      }),
+    };
+  };
+
+  try {
+    const result = await chatCompletion({
+      messages: [{ role: 'user', content: 'return JSON' }],
+      env,
+      timeoutMs: 1000,
+    });
+
+    assert.equal(result.model, 'explicit-custom-model');
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions');
+    assert.equal(requests[0].options.headers.Authorization, 'Bearer gemini-key');
+    assert.equal(requests[0].options.headers['HTTP-Referer'], undefined);
+    assert.equal(requests[0].options.headers['X-Title'], undefined);
+    assert.equal(JSON.parse(requests[0].options.body).model, 'explicit-custom-model');
+  } finally {
+    global.fetch = originalFetch;
   }
 });

@@ -11,6 +11,7 @@ const {
   dockerRunArgs,
   loadRunwavePlaytest,
   loadPlaytestInstructions,
+  modelEndpointConfig,
   shouldRunJobInContainer,
   signalLongProcess,
   startOverridesFromJob,
@@ -232,6 +233,66 @@ test('docker runner isolates games and job workspaces without exposing secret va
   assert.ok(args.includes('AWS_SECRET_ACCESS_KEY'));
   assert.equal(args.includes('id-value'), false);
   assert.equal(args.includes('secret-value'), false);
+});
+
+test('docker runner forwards generic model endpoint credentials by name only', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runwave-docker-model-'));
+  const gamesRoot = path.join(root, 'games');
+  const jobsRoot = path.join(root, 'jobs');
+  const inputRoot = path.join(root, 'input');
+  fs.mkdirSync(gamesRoot);
+  fs.mkdirSync(jobsRoot);
+  fs.mkdirSync(inputRoot);
+  fs.writeFileSync(path.join(inputRoot, 'job.json'), '{}');
+
+  const args = dockerRunArgs(
+    { job: path.join(inputRoot, 'job.json') },
+    { jobId: 'run-generic-model' },
+    { gamesRoot, jobsRoot },
+    {
+      env: {
+        RUNWAVE_API_KEY: 'generic-secret',
+        RUNWAVE_BASE_URL: 'https://example.test/v1',
+        RUNWAVE_PROMPT_MODE: 'webapp',
+        GEMINI_API_KEY: 'gemini-secret',
+      },
+      scriptPath: path.join(root, 'run-playtest.js'),
+      envFile: path.join(root, 'missing.env'),
+    }
+  );
+
+  assert.ok(args.includes('RUNWAVE_API_KEY'));
+  assert.ok(args.includes('RUNWAVE_BASE_URL'));
+  assert.ok(args.includes('RUNWAVE_PROMPT_MODE'));
+  assert.ok(args.includes('GEMINI_API_KEY'));
+  assert.equal(args.includes('generic-secret'), false);
+  assert.equal(args.includes('gemini-secret'), false);
+});
+
+test('remote model endpoint selection follows the configured provider', () => {
+  assert.deepEqual(
+    modelEndpointConfig({
+      RUNWAVE_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      GEMINI_API_KEY: 'gemini-key',
+      OPENROUTER_API_KEY: 'router-key',
+    }),
+    {
+      apiKey: 'gemini-key',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    }
+  );
+  assert.deepEqual(
+    modelEndpointConfig({ OPENROUTER_API_KEY: 'router-key' }),
+    { apiKey: 'router-key', baseUrl: null }
+  );
+  assert.deepEqual(
+    modelEndpointConfig({
+      RUNWAVE_BASE_URL: 'https://example.test/v1',
+      OPENROUTER_API_KEY: 'router-key',
+      OPENAI_API_KEY: 'openai-key',
+    }),
+    { apiKey: 'openai-key', baseUrl: 'https://example.test/v1' }
+  );
 });
 
 test('docker runner mounts absolute local runwave repos into the container', () => {

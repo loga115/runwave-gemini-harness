@@ -1,7 +1,7 @@
 {
   "name": "runwave",
   "version": "0.1.0",
-  "description": "Runwave browser-game playtesting and artifact capture.",
+  "description": "Runwave interactive web-application playtesting and artifact capture.",
   "private": true,
   "type": "commonjs",
   "main": "runwave/index.js",

@@ -4,7 +4,16 @@ const fs = require('fs');
 const path = require('path');
 
 const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
-const DEFAULT_MODEL = 'google/gemini-3.5-flash';
+const DEFAULT_MODEL = 'google/gemini-3.8-flash';
+const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+
+// Runwave keeps OpenRouter as the zero-configuration default, while allowing
+// callers to point the same Chat Completions request at any OpenAI-compatible
+// endpoint.  The generic RUNWAVE_* names are preferred; the provider-specific
+// names remain supported so existing jobs keep working.
+const GENERIC_API_KEY_ENV = 'RUNWAVE_API_KEY';
+const GENERIC_BASE_URL_ENV = 'RUNWAVE_BASE_URL';
+const GENERIC_MODEL_ENV = 'RUNWAVE_AGENT_MODEL';
 
 function modelJsonParseError(message, text, cause = null) {
   const error = new Error(message);
@@ -36,17 +45,108 @@ function parseFlatYamlValue(file, key) {
   return null;
 }
 
-function configPath() {
-  const home = process.env.HOME || process.env.USERPROFILE || '';
-  return process.env.RUNWAVE_AGENT_CONFIG || (home ? path.join(home, '.c.yaml') : '');
+function configPath(env = process.env) {
+  const home = env.HOME || env.USERPROFILE || '';
+  return env.RUNWAVE_AGENT_CONFIG || (home ? path.join(home, '.c.yaml') : '');
 }
 
-function openRouterApiKey() {
-  const fromEnv = process.env.OPENROUTER_API_KEY || process.env.RUNWAVE_OPENROUTER_API_KEY;
+function firstValue(env, names) {
+  for (const name of names) {
+    const value = env && env[name];
+    if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+  }
+  return null;
+}
+
+function endpointHost(baseUrl) {
+  try {
+    return new URL(baseUrl).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function isOpenRouterEndpoint(baseUrl) {
+  const host = endpointHost(baseUrl);
+  return host === 'openrouter.ai' || host.endsWith('.openrouter.ai');
+}
+
+function isGeminiEndpoint(baseUrl) {
+  const host = endpointHost(baseUrl);
+  return host === 'generativelanguage.googleapis.com' || host.endsWith('.generativelanguage.googleapis.com');
+}
+
+function endpointErrorLabel(baseUrl) {
+  return isOpenRouterEndpoint(baseUrl) ? 'OpenRouter' : 'Model endpoint';
+}
+
+function resolveBaseUrl(env = process.env, explicitBaseUrl = null) {
+  const value = explicitBaseUrl || firstValue(env, [
+    GENERIC_BASE_URL_ENV,
+    'OPENROUTER_BASE_URL',
+    'OPENAI_BASE_URL',
+    'RUNWAVE_OPENAI_BASE_URL',
+  ]) || DEFAULT_BASE_URL;
+  const normalized = String(value).trim().replace(/\/+$/, '');
+  try {
+    // Fail early with a useful message instead of producing an opaque fetch
+    // error later.  URL is available in every supported Node release.
+    new URL(normalized);
+  } catch {
+    throw new Error(`invalid Runwave model endpoint URL: ${value}`);
+  }
+  return normalized;
+}
+
+function apiKeyNamesForEndpoint(baseUrl, env = process.env) {
+  if (isGeminiEndpoint(baseUrl)) {
+    return [GENERIC_API_KEY_ENV, 'GEMINI_API_KEY', 'OPENAI_API_KEY'];
+  }
+  if (isOpenRouterEndpoint(baseUrl)) {
+    return [GENERIC_API_KEY_ENV, 'OPENROUTER_API_KEY', 'RUNWAVE_OPENROUTER_API_KEY'];
+  }
+  // OPENROUTER_BASE_URL and OPENAI_BASE_URL are established provider-specific
+  // overrides.  Honor their matching key even when the override points at a
+  // proxy whose hostname is not the provider's public hostname.
+  if (!env.RUNWAVE_BASE_URL && env.OPENROUTER_BASE_URL && baseUrl === resolveBaseUrl(env)) {
+    return [GENERIC_API_KEY_ENV, 'OPENROUTER_API_KEY', 'RUNWAVE_OPENROUTER_API_KEY'];
+  }
+  if (!env.RUNWAVE_BASE_URL && (env.OPENAI_BASE_URL || env.RUNWAVE_OPENAI_BASE_URL) && baseUrl === resolveBaseUrl(env)) {
+    return [GENERIC_API_KEY_ENV, 'OPENAI_API_KEY'];
+  }
+  return [GENERIC_API_KEY_ENV, 'OPENAI_API_KEY'];
+}
+
+function resolveApiKey(env = process.env, explicitBaseUrl = null) {
+  const baseUrl = resolveBaseUrl(env, explicitBaseUrl);
+  const names = apiKeyNamesForEndpoint(baseUrl, env);
+  const fromEnv = firstValue(env, names);
   if (fromEnv) return fromEnv;
 
-  const file = configPath();
-  return parseFlatYamlValue(file, 'OPENROUTER_API_KEY') || parseFlatYamlValue(file, 'RUNWAVE_OPENROUTER_API_KEY');
+  const file = configPath(env);
+  for (const name of names) {
+    const value = parseFlatYamlValue(file, name);
+    if (value) return value;
+  }
+  return null;
+}
+
+// Kept as a compatibility alias for callers that used the original
+// OpenRouter-only helper.  It now follows the provider-neutral resolution
+// rules above.
+function openRouterApiKey(env = process.env) {
+  return resolveApiKey(env);
+}
+
+function resolveModel(env = process.env, explicitModel = null, explicitBaseUrl = null) {
+  if (explicitModel) return String(explicitModel).trim();
+  const baseUrl = resolveBaseUrl(env, explicitBaseUrl);
+  const providerModelNames = isGeminiEndpoint(baseUrl)
+    ? ['GEMINI_MODEL', 'OPENAI_MODEL']
+    : (isOpenRouterEndpoint(baseUrl) ? ['OPENROUTER_MODEL'] : ['OPENAI_MODEL', 'GEMINI_MODEL']);
+  const configured = firstValue(env, [GENERIC_MODEL_ENV, ...providerModelNames]);
+  if (configured) return String(configured).trim();
+  return isGeminiEndpoint(baseUrl) ? DEFAULT_GEMINI_MODEL : DEFAULT_MODEL;
 }
 
 function responseText(message) {
@@ -254,30 +354,54 @@ function dataUrl(file) {
   return `data:${mimeType(file)};base64,${encoded}`;
 }
 
-async function chatCompletion({ messages, maxTokens = 2400, temperature = 0.2, timeoutMs = 120000, attempts = null }) {
-  const apiKey = openRouterApiKey();
+async function chatCompletion({
+  messages,
+  maxTokens = 2400,
+  temperature = 0.2,
+  timeoutMs = 120000,
+  attempts = null,
+  apiKey: explicitApiKey = null,
+  baseUrl: explicitBaseUrl = null,
+  model: explicitModel = null,
+  env = process.env,
+}) {
+  const baseUrl = resolveBaseUrl(env, explicitBaseUrl);
+  const apiKey = explicitApiKey || resolveApiKey(env, baseUrl);
   if (!apiKey) {
-    throw new Error(`OPENROUTER_API_KEY not found in environment or ${configPath()}`);
+    if (isOpenRouterEndpoint(baseUrl)) {
+      // Preserve the original diagnostic for existing OpenRouter jobs.
+      throw new Error(`OPENROUTER_API_KEY not found in environment or ${configPath(env)}`);
+    }
+    throw new Error(
+      `Runwave model API key not found; set RUNWAVE_API_KEY (or the provider-specific key) `
+      + `in the environment or ${configPath(env)}`
+    );
   }
 
-  const model = process.env.RUNWAVE_AGENT_MODEL || process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
-  const baseUrl = process.env.OPENROUTER_BASE_URL || DEFAULT_BASE_URL;
-  const attemptCount = Math.max(1, Math.round(Number(attempts || process.env.RUNWAVE_AGENT_MODEL_ATTEMPTS || 3)));
+  const model = resolveModel(env, explicitModel, baseUrl);
+  const attemptCount = Math.max(1, Math.round(Number(attempts || env.RUNWAVE_AGENT_MODEL_ATTEMPTS || 3)));
   let lastError = null;
   let requestMessages = messages;
 
   for (let attempt = 1; attempt <= attemptCount; attempt += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    const headers = {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    };
+    // These headers are useful metadata for OpenRouter, but some compatible
+    // providers reject unknown provider-specific headers.  Send them only to
+    // OpenRouter while keeping the request itself provider-neutral.
+    if (isOpenRouterEndpoint(baseUrl)) {
+      headers['HTTP-Referer'] = env.RUNWAVE_HTTP_REFERER || 'https://github.com/parsewave/runwave';
+      headers['X-Title'] = 'Runwave agentic web-application tester';
+    }
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://parsewave.local/runwave',
-        'X-Title': 'RunWave agentic playtester',
-      },
+      headers,
       body: JSON.stringify({
         model,
         messages: requestMessages,
@@ -291,7 +415,7 @@ async function chatCompletion({ messages, maxTokens = 2400, temperature = 0.2, t
     const body = await response.text();
     try {
       if (!response.ok) {
-        throw new Error(`OpenRouter HTTP ${response.status}: ${body.slice(0, 1200)}`);
+        throw new Error(`${endpointErrorLabel(baseUrl)} HTTP ${response.status}: ${body.slice(0, 1200)}`);
       }
 
       const payload = JSON.parse(body);
@@ -311,7 +435,7 @@ async function chatCompletion({ messages, maxTokens = 2400, temperature = 0.2, t
       lastError = error;
       const retryable = attempt < attemptCount;
       if (!retryable) {
-        if (body && !String(error.message).startsWith('OpenRouter HTTP')) {
+        if (body && !String(error.message).startsWith(`${endpointErrorLabel(baseUrl)} HTTP`)) {
           error.message = `${error.message}; response excerpt=${body.slice(0, 1200)}`;
         }
         throw error;
@@ -330,13 +454,18 @@ async function chatCompletion({ messages, maxTokens = 2400, temperature = 0.2, t
     }
   }
 
-  throw lastError || new Error('OpenRouter request failed');
+  throw lastError || new Error(`${endpointErrorLabel(baseUrl)} request failed`);
 }
 
 module.exports = {
   chatCompletion,
   dataUrl,
   isModelJsonParseError,
+  isGeminiEndpoint,
+  isOpenRouterEndpoint,
   openRouterApiKey,
   parseJsonResponse,
+  resolveApiKey,
+  resolveBaseUrl,
+  resolveModel,
 };

@@ -147,7 +147,87 @@ function repeatedControlCycle(history, maxPeriod = 5) {
   return null;
 }
 
-function repeatedHistoryWarning(history) {
+const DEFAULT_PROMPT_MODE = 'webgame';
+
+function normalizePromptMode(value) {
+  const raw = String(
+    value
+    ?? process.env.RUNWAVE_PROMPT_MODE
+    ?? process.env.RUNWAVE_PROMPT_PROFILE
+    ?? ''
+  ).trim().toLowerCase();
+  if (['webapp', 'web-app', 'website', 'web', 'application', 'generic', 'interactive', 'interactive-web'].includes(raw)) {
+    return 'webapp';
+  }
+  return DEFAULT_PROMPT_MODE;
+}
+
+function promptProfile(mode) {
+  if (mode === 'webapp') {
+    return {
+      pausedWarning: 'Warning: the application still appears paused. Try a different visible resume/control input instead of repeating the same click.',
+      entryWarning: 'Warning: the recent sequences did not clearly leave the landing/menu flow. Use the visible instruction or a different common confirm key.',
+      instructionsTitle: 'Application-specific playtest.md:',
+      controlsNote: 'Use these application-specific controls when they apply. If they conflict with visible instructions, follow the visible current screen.',
+      dragGuidance: '- Use type "drag" for drag/swipe interactions with "from" and "to" overlay row/column objects. Use mode "mouse" for pointer/canvas-style dragging; use mode "html5" only when the visible application appears to use browser-native drag/drop elements.',
+      viewportDescription: 'active view',
+      intro: 'You are an agentic interactive web-application tester. Your job is to create a useful interaction video, not to judge the application.',
+      goals: [
+        '- If the application opens on a landing, welcome, setup, or menu screen, proceed to its main interactive content.',
+        '- If movement or navigation is possible, explore as much of the application as possible.',
+        '- If there is no movement, perform meaningful application interactions repeatedly.',
+        '- Try to chain multiple sensible actions in one sequence rather than a single action each time.',
+        '- Do not stop early unless the recording already shows enough meaningful interaction.',
+      ],
+      structure: '- If the application has its own board, tiles, cells, lanes, or grid, reason about that structure separately. Use the red overlay only to choose approximate mouse positions.',
+      rawViewport: '- Only use raw x/y if the grid is not enough. Raw x/y coordinates are inside the inner active viewport only; ignore the label margins and do not use full-image pixel coordinates.',
+      paused: '- If the application says paused, resume, continue, start, or shows tutorial controls, follow that visible instruction before doing anything else.',
+      menu: '- On landing or menu screens, prefer options that expose the main interactive content: Play, Start, New, Continue, Resume, or a default view/workspace choice.',
+      avoid: '- Prefer meaningful interactive content over static Settings, Credits, Help, or external-navigation screens unless the guide or visible UI identifies them as important features.',
+      menuFallback: '- If one menu choice does not expose the main content, go back or try a different option on the next step. Do not spend turns only describing or waiting on a menu.',
+      geometry: '- If the state JSON reports useful application geometry such as a canvas, treat that rectangle as the active area unless the screenshot clearly shows otherwise. Otherwise rely on the visible screenshot.',
+      reset: '- If the application reloads, resets, or returns to a landing/menu screen, re-enter its main content and change strategy instead of repeating the same failed action.',
+      repetition: '- If an action or strategy visibly worked, learn the pattern and try a similar follow-up, but do not blindly repeat the exact same input unless the application clearly needs repetition.',
+      video: '- Avoid idle waiting. Each step should do something visible or useful for the interaction video.',
+      outcome: '- In previous_sequence_outcome, summarize what visibly happened after the most recent prior sequence. If a prior control changed the view, object, board, metric, menu, or application state, say that clearly. On the first sequence, use an empty string.',
+      stateLabel: 'Application state JSON:',
+    };
+  }
+
+  // This is the original profile. It remains the default so existing
+  // web-game tasks receive the same behavioral guidance as before.
+  return {
+    pausedWarning: 'Warning: the game still appears paused. Try a different visible resume/control input instead of repeating the same click.',
+    entryWarning: 'Warning: the recent sequences did not clearly leave the menu/title flow. Use the visible start instruction or a different common confirm key.',
+    instructionsTitle: 'Game-specific playtest.md:',
+    controlsNote: 'Use these game-specific controls when they apply. If they conflict with visible in-game instructions, follow the visible current screen.',
+    dragGuidance: '- Use type "drag" for drag/swipe games with "from" and "to" overlay row/column objects. Use mode "mouse" for pointer/canvas-style dragging; use mode "html5" only when the visible game appears to use browser-native drag/drop elements.',
+    viewportDescription: 'playable view',
+    intro: 'You are an agentic game playtester. Your job is to create a useful gameplay video, not to judge the game.',
+    goals: [
+      '- If the game is on a menu/title/start screen, get into real gameplay.',
+      '- If movement is possible, always strive to explore as much as possible.',
+      '- If there is no movement, perform meaningful game actions repeatedly.',
+      '- Try to chain multiple sensible actions in one sequence rather than a single action each time.',
+      '- Do not stop early unless the recording already shows enough real gameplay.',
+    ],
+    structure: '- If the game has its own board, tiles, cells, lanes, or grid, reason about that game structure separately. Use the red overlay only to choose approximate mouse positions.',
+    rawViewport: '- Only use raw x/y if the grid is not enough. Raw x/y coordinates are inside the inner game viewport only; ignore the label margins and do not use full-image pixel coordinates.',
+    paused: '- If the game says paused, resume, continue, start, or shows tutorial controls, follow that visible instruction before doing anything else.',
+    menu: '- On menus, prefer options that clearly enter gameplay: Play, Start, New Game, Single Player, Campaign, Level 1, Continue, Resume, or a default character/level choice.',
+    avoid: '- Avoid Options, Settings, Credits, Help, Leaderboard, and Multiplayer unless they are the only visible path into gameplay.',
+    menuFallback: '- If one menu choice does not enter gameplay, go back or try a different start-like choice on the next step. Do not spend turns only describing or waiting on a menu.',
+    geometry: '- If the state JSON reports useful game geometry such as a canvas, treat that rectangle as the active game area unless the screenshot clearly shows otherwise. Otherwise rely on the visible screenshot.',
+    reset: '- If you die, reset, or return to a map/title screen, re-enter gameplay and change strategy instead of repeating the same failed action.',
+    repetition: '- If an action or strategy visibly worked, learn the pattern and try a similar follow-up, but do not blindly repeat the exact same input unless the game clearly needs repetition.',
+    video: '- Avoid idle waiting. Each step should do something visible or useful for the gameplay video.',
+    outcome: '- In previous_sequence_outcome, summarize what visibly happened after the most recent prior sequence. If a prior control moved the player, camera, board, score, menu, or level state, say that clearly. On the first sequence, use an empty string.',
+    stateLabel: 'Game state JSON:',
+  };
+}
+
+function repeatedHistoryWarning(history, mode = normalizePromptMode()) {
+  const profile = promptProfile(mode);
   const cycle = repeatedControlCycle(history, 5);
   if (cycle && cycle.period === 1) {
     return 'Warning: the recent sequences repeated the same controls. Switch strategy now instead of trying the same input again.';
@@ -160,27 +240,33 @@ function repeatedHistoryWarning(history) {
   if (recent.length < 3) return '';
   const summaries = recent.map((item) => String(item.summary || '').toLowerCase());
   if (summaries.every((summary) => summary.includes('paused'))) {
-    return 'Warning: the game still appears paused. Try a different visible resume/control input instead of repeating the same click.';
+    return profile.pausedWarning;
   }
-  if (summaries.every((summary) => summary.includes('menu') || summary.includes('title') || summary.includes('start'))) {
-    return 'Warning: the recent sequences did not clearly leave the menu/title flow. Use the visible start instruction or a different common confirm key.';
+  const entryTerms = mode === 'webapp'
+    ? ['menu', 'title', 'start', 'landing', 'welcome', 'setup']
+    : ['menu', 'title', 'start'];
+  if (summaries.every((summary) => entryTerms.some((term) => summary.includes(term)))) {
+    return profile.entryWarning;
   }
   return '';
 }
 
-function playtestInstructionsSection(job) {
+function playtestInstructionsSection(job, mode = normalizePromptMode()) {
   const instructions = String(job.playtestInstructions || '').trim();
   if (!instructions) return [];
+  const profile = promptProfile(mode);
   return [
-    'Game-specific playtest.md:',
+    profile.instructionsTitle,
     instructions.slice(0, 8000),
     '',
-    'Use these game-specific controls when they apply. If they conflict with visible in-game instructions, follow the visible current screen.',
+    profile.controlsNote,
     '',
   ];
 }
 
 function buildPlaytesterPrompt({ job, elapsedMs, maxMs, viewport, state, history }) {
+  const promptMode = normalizePromptMode(job && job.promptMode);
+  const profile = promptProfile(promptMode);
   const secondsLeft = Math.max(0, Math.round((maxMs - elapsedMs) / 1000));
   const controls = job.agentControls || [
     'ArrowUp',
@@ -195,20 +281,15 @@ function buildPlaytesterPrompt({ job, elapsedMs, maxMs, viewport, state, history
     'KeyS',
     'KeyD',
   ];
-  const warning = repeatedHistoryWarning(history);
+  const warning = repeatedHistoryWarning(history, promptMode);
   const grid = markGridFromConfig(job || {});
-  const dragGuidance = '- Use type "drag" for drag/swipe games with "from" and "to" overlay row/column objects. Use mode "mouse" for pointer/canvas-style dragging; use mode "html5" only when the visible game appears to use browser-native drag/drop elements.';
-  const viewportLine = `Viewport: ${viewport.width}x${viewport.height}. The screenshot has a light ${grid.rows}x${grid.cols} red mark grid over the playable view. Overlay column labels are in the top/bottom margins and overlay row labels are in the left/right margins.`;
+  const viewportLine = `Viewport: ${viewport.width}x${viewport.height}. The screenshot has a light ${grid.rows}x${grid.cols} red mark grid over the ${profile.viewportDescription}. Overlay column labels are in the top/bottom margins and overlay row labels are in the left/right margins.`;
 
   return [
-    'You are an agentic game playtester. Your job is to create a useful gameplay video, not to judge the game.',
+    profile.intro,
     '',
     'High-level goals:',
-    '- If the game is on a menu/title/start screen, get into real gameplay.',
-    '- If movement is possible, always strive to explore as much as possible.',
-    '- If there is no movement, perform meaningful game actions repeatedly.',
-    '- Try to chain multiple sensible actions in one sequence rather than a single action each time.',
-    '- Do not stop early unless the recording already shows enough real gameplay.',
+    ...profile.goals,
     '',
     sequenceSchemaGuide(grid),
     '',
@@ -216,35 +297,35 @@ function buildPlaytesterPrompt({ job, elapsedMs, maxMs, viewport, state, history
     viewportLine,
     `Available common controls: ${controls.join(', ')}. You may use normal RunWave key names.`,
     '',
-    ...playtestInstructionsSection(job),
+    ...playtestInstructionsSection(job, promptMode),
     'Sequence guidance:',
-    '- If the game has its own board, tiles, cells, lanes, or grid, reason about that game structure separately. Use the red overlay only to choose approximate mouse positions.',
+    profile.structure,
     '- Prefer overlay grid targeting over raw x/y coordinates. For a single pointer target use "cell": {"overlay_row": r, "overlay_col": c}; for up to 4 possible targets use "cells": [{"overlay_row": r, "overlay_col": c}].',
-    '- Only use raw x/y if the grid is not enough. Raw x/y coordinates are inside the inner game viewport only; ignore the label margins and do not use full-image pixel coordinates.',
+    profile.rawViewport,
     '- Put every input in the "actions" array. Each action must have a "type": "key", "click", "multi_click", "drag", "cursor_move", or "view_move".',
     '- Use "start" and "end" times in milliseconds. Instant actions such as click, multi_click, drag, and cursor_move only need "start".',
     '- The sequence duration is inferred from the latest action "end", or from "start" for instant actions. The runner will send that duration explicitly with the step request.',
     '- For pointer-only sequences, do not put the final pointer action exactly at the end of the sequence. Leave at least 100ms after the final click, drag, multi_click, or cursor_move by scheduling it before the latest action end/start.',
     '- Never use a pointer action start time beyond the sequence duration. Keep all click, multi_click, drag, and cursor_move start times strictly before the latest end/start in the sequence.',
     '- Use type "click" for a single click in the selected cell area. Use type "multi_click" when a target is imprecise or repeated clicking/tapping is useful; it sends quick clicks at random points inside the selected cells.',
-    dragGuidance,
-    '- If the game says paused, resume, continue, start, or shows tutorial controls, follow that visible instruction before doing anything else.',
-    '- On menus, prefer options that clearly enter gameplay: Play, Start, New Game, Single Player, Campaign, Level 1, Continue, Resume, or a default character/level choice.',
-    '- Avoid Options, Settings, Credits, Help, Leaderboard, and Multiplayer unless they are the only visible path into gameplay.',
-    '- If one menu choice does not enter gameplay, go back or try a different start-like choice on the next step. Do not spend turns only describing or waiting on a menu.',
+    profile.dragGuidance,
+    profile.paused,
+    profile.menu,
+    profile.avoid,
+    profile.menuFallback,
     '- Common resume/confirm keys are Space, Enter, Escape, and P. Use them when the screen suggests a paused/menu state and clicks are not working.',
-    '- If the state JSON reports useful game geometry such as a canvas, treat that rectangle as the active game area unless the screenshot clearly shows otherwise. Otherwise rely on the visible screenshot.',
-    '- If you die, reset, or return to a map/title screen, re-enter gameplay and change strategy instead of repeating the same failed action.',
+    profile.geometry,
+    profile.reset,
     '- If the same thing has failed about 3-5 times with no visible progress, say that in previous_sequence_outcome and try a different target, route, control, or strategy.',
-    '- If an action or strategy visibly worked, learn the pattern and try a similar follow-up, but do not blindly repeat the exact same input unless the game clearly needs repetition.',
-    '- Avoid idle waiting. Each step should do something visible or useful for the gameplay video.',
-    '- In previous_sequence_outcome, summarize what visibly happened after the most recent prior sequence. If a prior control moved the player, camera, board, score, menu, or level state, say that clearly. On the first sequence, use an empty string.',
+    profile.repetition,
+    profile.video,
+    profile.outcome,
     '',
     warning ? `${warning}\n` : '',
     'Recent history:',
     compactHistory(history) || 'none',
     '',
-    'Game state JSON:',
+    profile.stateLabel,
     JSON.stringify(state || {}, null, 2).slice(0, 5000),
     '',
     'Return the next JSON sequence now. Every non-stop response must include at least one action. Use an empty actions array only when you are done and set "should_stop": true.',
@@ -254,5 +335,6 @@ function buildPlaytesterPrompt({ job, elapsedMs, maxMs, viewport, state, history
 module.exports = {
   buildPlaytesterPrompt,
   compactHistory,
+  normalizePromptMode,
   sequenceSchemaGuide,
 };
