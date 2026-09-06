@@ -83,7 +83,6 @@ function dockerEnvNames(env = process.env) {
     /^OPENAI_/,
     /^ANTHROPIC_/,
     /^OPENROUTER_/,
-    /^GEMINI_(API_KEY|MODEL)$/,
     /^PARSEWAVE_/,
     /^GITHUB_/,
     /^GH_TOKEN$/,
@@ -93,7 +92,6 @@ function dockerEnvNames(env = process.env) {
     /^RUNWAVE_API_KEY$/,
     /^RUNWAVE_BASE_URL$/,
     /^RUNWAVE_HTTP_REFERER$/,
-    /^RUNWAVE_OPENAI_BASE_URL$/,
     /^RUNWAVE_OPENROUTER_API_KEY$/,
     /^RUNWAVE_AUDIO_/,
     /^RUNWAVE_CHROMIUM_ARGS(_MODE)?$/,
@@ -115,26 +113,12 @@ function dockerEnvNames(env = process.env) {
 
 function modelEndpointConfig(env = process.env) {
   const baseUrl = env.RUNWAVE_BASE_URL
-    || env.OPENAI_BASE_URL
-    || env.RUNWAVE_OPENAI_BASE_URL
     || env.OPENROUTER_BASE_URL
     || '';
   const lowerBaseUrl = String(baseUrl).toLowerCase();
-  const providerOverride = !env.RUNWAVE_BASE_URL
-    && (env.OPENROUTER_BASE_URL || env.OPENAI_BASE_URL || env.RUNWAVE_OPENAI_BASE_URL);
   const apiKey = env.RUNWAVE_API_KEY
-    || (lowerBaseUrl.includes('generativelanguage.googleapis.com') ? env.GEMINI_API_KEY : null)
-    || ((lowerBaseUrl.includes('openrouter.ai') || !baseUrl || (providerOverride && env.OPENROUTER_BASE_URL))
+    || ((lowerBaseUrl.includes('openrouter.ai') || !baseUrl || (!env.RUNWAVE_BASE_URL && env.OPENROUTER_BASE_URL))
       ? (env.OPENROUTER_API_KEY || env.RUNWAVE_OPENROUTER_API_KEY)
-      : null)
-    || ((providerOverride && (env.OPENAI_BASE_URL || env.RUNWAVE_OPENAI_BASE_URL))
-      ? env.OPENAI_API_KEY
-      : null)
-    // A caller using RUNWAVE_BASE_URL can select any OpenAI-compatible service.
-    // In that case OPENAI_API_KEY is the conventional generic credential.
-    || (baseUrl && !lowerBaseUrl.includes('openrouter.ai')
-      && !lowerBaseUrl.includes('generativelanguage.googleapis.com')
-      ? env.OPENAI_API_KEY
       : null);
   return { apiKey, baseUrl: baseUrl || null };
 }

@@ -132,7 +132,8 @@ debug path explicitly needs to override controller start options.
 Agent mode uses the browser controller as the hands and the `runwave/agent/`
 package as the model-calling planner. OpenRouter is the default. To use another
 OpenAI-compatible provider, set `RUNWAVE_BASE_URL`, `RUNWAVE_API_KEY`, and
-`RUNWAVE_AGENT_MODEL`; provider-specific API-key variables are also supported.
+`RUNWAVE_AGENT_MODEL`. The original `OPENROUTER_*` variables remain supported
+for existing jobs.
 
 For a single local game smoke:
 

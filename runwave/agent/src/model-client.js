@@ -9,8 +9,8 @@ const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
 
 // Runwave keeps OpenRouter as the zero-configuration default, while allowing
 // callers to point the same Chat Completions request at any OpenAI-compatible
-// endpoint.  The generic RUNWAVE_* names are preferred; the provider-specific
-// names remain supported so existing jobs keep working.
+// endpoint. New configurations use only RUNWAVE_* names. The original
+// OpenRouter names remain supported so existing jobs keep working.
 const GENERIC_API_KEY_ENV = 'RUNWAVE_API_KEY';
 const GENERIC_BASE_URL_ENV = 'RUNWAVE_BASE_URL';
 const GENERIC_MODEL_ENV = 'RUNWAVE_AGENT_MODEL';
@@ -84,8 +84,6 @@ function resolveBaseUrl(env = process.env, explicitBaseUrl = null) {
   const value = explicitBaseUrl || firstValue(env, [
     GENERIC_BASE_URL_ENV,
     'OPENROUTER_BASE_URL',
-    'OPENAI_BASE_URL',
-    'RUNWAVE_OPENAI_BASE_URL',
   ]) || DEFAULT_BASE_URL;
   const normalized = String(value).trim().replace(/\/+$/, '');
   try {
@@ -99,22 +97,15 @@ function resolveBaseUrl(env = process.env, explicitBaseUrl = null) {
 }
 
 function apiKeyNamesForEndpoint(baseUrl, env = process.env) {
-  if (isGeminiEndpoint(baseUrl)) {
-    return [GENERIC_API_KEY_ENV, 'GEMINI_API_KEY', 'OPENAI_API_KEY'];
-  }
   if (isOpenRouterEndpoint(baseUrl)) {
     return [GENERIC_API_KEY_ENV, 'OPENROUTER_API_KEY', 'RUNWAVE_OPENROUTER_API_KEY'];
   }
-  // OPENROUTER_BASE_URL and OPENAI_BASE_URL are established provider-specific
-  // overrides.  Honor their matching key even when the override points at a
-  // proxy whose hostname is not the provider's public hostname.
+  // OPENROUTER_BASE_URL is part of the original contract. Honor its matching
+  // key even when it points at an OpenRouter proxy with a different hostname.
   if (!env.RUNWAVE_BASE_URL && env.OPENROUTER_BASE_URL && baseUrl === resolveBaseUrl(env)) {
     return [GENERIC_API_KEY_ENV, 'OPENROUTER_API_KEY', 'RUNWAVE_OPENROUTER_API_KEY'];
   }
-  if (!env.RUNWAVE_BASE_URL && (env.OPENAI_BASE_URL || env.RUNWAVE_OPENAI_BASE_URL) && baseUrl === resolveBaseUrl(env)) {
-    return [GENERIC_API_KEY_ENV, 'OPENAI_API_KEY'];
-  }
-  return [GENERIC_API_KEY_ENV, 'OPENAI_API_KEY'];
+  return [GENERIC_API_KEY_ENV];
 }
 
 function resolveApiKey(env = process.env, explicitBaseUrl = null) {
@@ -141,9 +132,7 @@ function openRouterApiKey(env = process.env) {
 function resolveModel(env = process.env, explicitModel = null, explicitBaseUrl = null) {
   if (explicitModel) return String(explicitModel).trim();
   const baseUrl = resolveBaseUrl(env, explicitBaseUrl);
-  const providerModelNames = isGeminiEndpoint(baseUrl)
-    ? ['GEMINI_MODEL', 'OPENAI_MODEL']
-    : (isOpenRouterEndpoint(baseUrl) ? ['OPENROUTER_MODEL'] : ['OPENAI_MODEL', 'GEMINI_MODEL']);
+  const providerModelNames = isOpenRouterEndpoint(baseUrl) ? ['OPENROUTER_MODEL'] : [];
   const configured = firstValue(env, [GENERIC_MODEL_ENV, ...providerModelNames]);
   if (configured) return String(configured).trim();
   return isGeminiEndpoint(baseUrl) ? DEFAULT_GEMINI_MODEL : DEFAULT_MODEL;
@@ -373,7 +362,7 @@ async function chatCompletion({
       throw new Error(`OPENROUTER_API_KEY not found in environment or ${configPath(env)}`);
     }
     throw new Error(
-      `Runwave model API key not found; set RUNWAVE_API_KEY (or the provider-specific key) `
+      `Runwave model API key not found; set RUNWAVE_API_KEY `
       + `in the environment or ${configPath(env)}`
     );
   }

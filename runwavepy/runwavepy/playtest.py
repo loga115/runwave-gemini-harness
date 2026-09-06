@@ -91,8 +91,8 @@ def run_playtest(
         ``"web"`` for browser applications or ``"linux"`` for native Linux
         applications.
     api_key:
-        Generic API key for the selected OpenAI-compatible model endpoint. If
-        omitted, a provider-specific key in the environment is used.
+        API key for the selected OpenAI-compatible model endpoint. If omitted,
+        ``RUNWAVE_API_KEY`` is read from the environment.
     base_url:
         Optional OpenAI-compatible endpoint URL. OpenRouter is the default;
         this value is exported as ``RUNWAVE_BASE_URL``.
@@ -177,21 +177,23 @@ def run_playtest(
     if base_url:
         resolved_env["RUNWAVE_BASE_URL"] = base_url
 
-    key_available = any(
-        resolved_env.get(name)
-        for name in (
-            "RUNWAVE_API_KEY",
-            "OPENROUTER_API_KEY",
-            "RUNWAVE_OPENROUTER_API_KEY",
-            "OPENAI_API_KEY",
-            "GEMINI_API_KEY",
+    configured_base_url = resolved_env.get("RUNWAVE_BASE_URL", "")
+    using_legacy_openrouter = (
+        not configured_base_url
+        or "openrouter.ai" in configured_base_url.lower()
+    )
+    key_available = bool(resolved_env.get("RUNWAVE_API_KEY")) or (
+        using_legacy_openrouter
+        and bool(
+            resolved_env.get("OPENROUTER_API_KEY")
+            or resolved_env.get("RUNWAVE_OPENROUTER_API_KEY")
         )
     )
     if not key_available:
         raise ValueError(
             "a model API key is required; pass api_key=... (or the legacy "
-            "openrouter_api_key=...) or set RUNWAVE_API_KEY / a provider-specific "
-            "key in the environment / env=... mapping."
+            "openrouter_api_key=...) or set RUNWAVE_API_KEY in the environment "
+            "/ env=... mapping."
         )
 
     with subprocess.Popen(

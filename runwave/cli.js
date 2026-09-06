@@ -19,7 +19,7 @@ function usage() {
     '  --viewport <width>x<height>  browser viewport and video size, e.g. 1280x720',
     '',
     'Environment:',
-    '  RUNWAVE_API_KEY              optional generic API key (provider-specific keys are also supported)',
+    '  RUNWAVE_API_KEY              API key for the configured model endpoint',
     '  RUNWAVE_BASE_URL             optional OpenAI-compatible endpoint (defaults to OpenRouter)',
     '  RUNWAVE_AGENT_MODEL          optional model identifier (or use --model)',
     '  RUNWAVE_PROMPT_MODE          webgame (default) or webapp/generic',
@@ -81,7 +81,7 @@ async function main() {
   const resolutionEnv = { ...process.env };
   if (args.baseUrl) resolutionEnv.RUNWAVE_BASE_URL = args.baseUrl;
   const apiKey = resolveApiKey(resolutionEnv, args.baseUrl || null);
-  if (!apiKey) missing.push('RUNWAVE_API_KEY (or a provider-specific API key)');
+  if (!apiKey) missing.push('RUNWAVE_API_KEY (or legacy OPENROUTER_API_KEY)');
   if (missing.length) {
     process.stderr.write(`missing required: ${missing.join(', ')}\n\n${usage()}\n`);
     process.exit(2);

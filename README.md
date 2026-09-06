@@ -26,10 +26,10 @@ Runwave is still best suited to interactive applications that:
 
 OpenRouter is the default model provider. The agent also accepts any endpoint
 that implements the OpenAI Chat Completions API. Set `RUNWAVE_BASE_URL` and
-`RUNWAVE_API_KEY` for a generic endpoint, or use the corresponding provider
-environment variables (`OPENAI_API_KEY`, `GEMINI_API_KEY`, or the legacy
-`OPENROUTER_API_KEY`). Set `RUNWAVE_AGENT_MODEL` (or the provider-specific
-model variable) to choose the model. With no override, OpenRouter uses
+`RUNWAVE_API_KEY` for any custom endpoint, and set `RUNWAVE_AGENT_MODEL` to
+choose the model. The original `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`,
+and `OPENROUTER_MODEL` variables remain supported only for compatibility with
+existing jobs. With no override, OpenRouter uses
 `google/gemini-3.8-flash`; the direct Gemini endpoint uses `gemini-3.8-flash`.
 
 The legacy web-game prompt is the default (`RUNWAVE_PROMPT_MODE=webgame`) so
@@ -92,7 +92,7 @@ For example, a direct Gemini-compatible setup is:
 
 ```sh
 RUNWAVE_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai \
-RUNWAVE_API_KEY="$GEMINI_API_KEY" \
+RUNWAVE_API_KEY="your-api-key" \
 RUNWAVE_AGENT_MODEL=gemini-3.8-flash \
 runwave --app-dir ./app --out-dir ./artifacts --port 3000 --viewport 1280x720
 ```

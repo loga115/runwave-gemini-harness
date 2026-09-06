@@ -1206,9 +1206,9 @@ test('model client keeps OpenRouter as the default provider', () => {
     resolveModel({
       RUNWAVE_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai',
       OPENROUTER_MODEL: 'wrong-provider-model',
-      GEMINI_MODEL: 'gemini-custom',
+      RUNWAVE_AGENT_MODEL: 'generic-custom-model',
     }),
-    'gemini-custom'
+    'generic-custom-model'
   );
 });
 
@@ -1217,7 +1217,7 @@ test('model client sends provider-neutral requests to an OpenAI-compatible endpo
   const requests = [];
   const env = {
     RUNWAVE_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    GEMINI_API_KEY: 'gemini-key',
+    RUNWAVE_API_KEY: 'runwave-key',
     OPENROUTER_API_KEY: 'router-key-that-must-not-be-used',
     RUNWAVE_AGENT_MODEL: 'explicit-custom-model',
     RUNWAVE_AGENT_MODEL_ATTEMPTS: '1',
@@ -1242,7 +1242,7 @@ test('model client sends provider-neutral requests to an OpenAI-compatible endpo
     assert.equal(result.model, 'explicit-custom-model');
     assert.equal(requests.length, 1);
     assert.equal(requests[0].url, 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions');
-    assert.equal(requests[0].options.headers.Authorization, 'Bearer gemini-key');
+    assert.equal(requests[0].options.headers.Authorization, 'Bearer runwave-key');
     assert.equal(requests[0].options.headers['HTTP-Referer'], undefined);
     assert.equal(requests[0].options.headers['X-Title'], undefined);
     assert.equal(JSON.parse(requests[0].options.body).model, 'explicit-custom-model');
