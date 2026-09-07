@@ -1,0 +1,11 @@
+{
+  "name": "suminagashi-marbling",
+  "description": "Suminagashi (墨流し) — an interactive Japanese paper-marbling canvas built with Three.js. Drag to float sumi ink onto the paper and watch it dissolve into flowing marbled patterns.",
+  "homepage": "https://suminagashi.miraicode.one/",
+  "source_experience": "https://suminagashi-fjdbyyqi.manus.space/",
+  "source_tweet": "https://x.com/hayashimon1/status/2064658158698782873",
+  "license": "SEE README — original web experience used as source and credited; bundled three.js is MIT.",
+  "scripts": {
+    "dev": "python3 -m http.server 8822 --bind 127.0.0.1"
+  }
+}
