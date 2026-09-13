@@ -386,7 +386,9 @@ class BrowserSession {
       clickCount,
       holdMs,
     }, async () => {
-      await this.releasePointerLockForOverlayClick(click);
+      if (process.env.RUNWAVE_POINTER_LOCK_COMPAT === '1' || this.config.pointerLockCompatibility === true) {
+        await this.releasePointerLockForOverlayClick(click);
+      }
       await this.page.mouse.move(click.x, click.y);
       for (let index = 0; index < clickCount; index += 1) {
         const eventClickCount = index + 1;
