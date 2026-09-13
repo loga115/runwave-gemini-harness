@@ -185,6 +185,21 @@ function browserViewportStabilizerScript() {
   document.addEventListener('DOMContentLoaded', installStyle, { once: true });
 }
 
+function browserPointerLockCompatibilityScript() {
+  const install = () => {
+    const prototype = Element.prototype;
+    const original = prototype.requestPointerLock;
+    if (!original || original.__runwavePointerLockCompat) return;
+    const compatible = function requestPointerLockWithoutOptions() {
+      return original.call(this);
+    };
+    Object.defineProperty(compatible, '__runwavePointerLockCompat', { value: true });
+    prototype.requestPointerLock = compatible;
+  };
+  install();
+  document.addEventListener('DOMContentLoaded', install, { once: true });
+}
+
 class BrowserSession {
   constructor(config, paths, profiler = null) {
     this.config = config;
@@ -248,6 +263,11 @@ class BrowserSession {
     if (record) {
       await this.time('browser.start.capture_viewport_stabilizer', () =>
         this.context.addInitScript(browserViewportStabilizerScript)
+      );
+    }
+    if (process.env.RUNWAVE_POINTER_LOCK_COMPAT === '1' || this.config.pointerLockCompatibility === true) {
+      await this.time('browser.start.pointer_lock_compatibility', () =>
+        this.context.addInitScript(browserPointerLockCompatibilityScript)
       );
     }
     this.page = await this.time('browser.start.new_page', () => this.context.newPage());
@@ -332,6 +352,30 @@ class BrowserSession {
     await this.time('browser.keyboard.up', { key }, () => this.page.keyboard.up(key));
   }
 
+  async releasePointerLockForOverlayClick(click) {
+    if (!this.page || !this.page.evaluate) return false;
+    const result = await this.page.evaluate(({ x, y }) => {
+      const locked = document.pointerLockElement;
+      if (!locked) return { released: false };
+      const target = document.elementFromPoint(Number(x), Number(y));
+      const control = target && target.closest(
+        'button, a[href], input, select, textarea, summary, [role="button"]'
+      );
+      if (!control || locked.contains(control)) return { released: false };
+      try {
+        document.exitPointerLock();
+        return { released: true };
+      } catch {
+        return { released: false };
+      }
+    }, { x: click.x, y: click.y });
+    if (!result || !result.released) return false;
+    if (this.page.waitForFunction) {
+      await this.page.waitForFunction(() => !document.pointerLockElement, null, { timeout: 1000 }).catch(() => {});
+    }
+    return true;
+  }
+
   async click(click) {
     const holdMs = Math.max(0, Number(click.end ?? click.start) - Number(click.start ?? 0));
     const clickCount = Math.max(1, Math.round(Number(click.clickCount || 1)));
@@ -342,6 +386,7 @@ class BrowserSession {
       clickCount,
       holdMs,
     }, async () => {
+      await this.releasePointerLockForOverlayClick(click);
       await this.page.mouse.move(click.x, click.y);
       for (let index = 0; index < clickCount; index += 1) {
         const eventClickCount = index + 1;
@@ -511,6 +556,7 @@ class BrowserSession {
 
 module.exports = {
   BrowserSession,
+  browserPointerLockCompatibilityScript,
   browserViewportStabilizerScript,
   chromiumArgs,
   chromiumLaunchArgs,
