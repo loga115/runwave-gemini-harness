@@ -20,6 +20,8 @@ function usage() {
     '',
     'Environment:',
     '  RUNWAVE_API_KEY              API key for the configured model endpoint',
+    '  GEMINI_API_KEY               Gemini key when RUNWAVE_BASE_URL is Gemini',
+    '  GOOGLE_API_KEY               Gemini-compatible alias',
     '  RUNWAVE_BASE_URL             optional OpenAI-compatible endpoint (defaults to OpenRouter)',
     '  RUNWAVE_AGENT_MODEL          optional model identifier (or use --model)',
     '  RUNWAVE_PROMPT_MODE          webgame (default) or webapp/generic',
@@ -81,7 +83,7 @@ async function main() {
   const resolutionEnv = { ...process.env };
   if (args.baseUrl) resolutionEnv.RUNWAVE_BASE_URL = args.baseUrl;
   const apiKey = resolveApiKey(resolutionEnv, args.baseUrl || null);
-  if (!apiKey) missing.push('RUNWAVE_API_KEY (or legacy OPENROUTER_API_KEY)');
+  if (!apiKey) missing.push('RUNWAVE_API_KEY/GEMINI_API_KEY (or legacy OPENROUTER_API_KEY)');
   if (missing.length) {
     process.stderr.write(`missing required: ${missing.join(', ')}\n\n${usage()}\n`);
     process.exit(2);

@@ -76,6 +76,11 @@ function isGeminiEndpoint(baseUrl) {
   return host === 'generativelanguage.googleapis.com' || host.endsWith('.generativelanguage.googleapis.com');
 }
 
+function chatCompletionsUrl(baseUrl) {
+  const normalized = String(baseUrl).replace(/\/+$/, '');
+  return normalized.endsWith('/chat/completions') ? normalized : `${normalized}/chat/completions`;
+}
+
 function endpointErrorLabel(baseUrl) {
   return isOpenRouterEndpoint(baseUrl) ? 'OpenRouter' : 'Model endpoint';
 }
@@ -97,6 +102,9 @@ function resolveBaseUrl(env = process.env, explicitBaseUrl = null) {
 }
 
 function apiKeyNamesForEndpoint(baseUrl, env = process.env) {
+  if (isGeminiEndpoint(baseUrl)) {
+    return [GENERIC_API_KEY_ENV, 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'OPENAI_API_KEY'];
+  }
   if (isOpenRouterEndpoint(baseUrl)) {
     return [GENERIC_API_KEY_ENV, 'OPENROUTER_API_KEY', 'RUNWAVE_OPENROUTER_API_KEY'];
   }
@@ -387,7 +395,7 @@ async function chatCompletion({
       headers['X-Title'] = 'Runwave agentic web-application tester';
     }
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetch(chatCompletionsUrl(baseUrl), {
       method: 'POST',
       signal: controller.signal,
       headers,
@@ -448,6 +456,7 @@ async function chatCompletion({
 
 module.exports = {
   chatCompletion,
+  chatCompletionsUrl,
   dataUrl,
   isModelJsonParseError,
   isGeminiEndpoint,

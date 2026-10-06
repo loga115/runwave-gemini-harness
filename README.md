@@ -59,6 +59,32 @@ Runwave's recording pipeline is **gstreamer-only** as other methods lead to audi
 The controller checks these prerequisites before spawning gstreamer and fails
 fast with a message naming the missing piece.
 
+## Frozen-frame MCP harness with Gemini
+
+This branch includes the task harness under `harness/q1k3/`. It is copied from
+the Parsewave template task and keeps the browser lifecycle, process-group
+pause gate, screenshots, input validation, and replay recording in the
+harness. `gemini_runner.py` is the model-side adapter: it sends each frozen
+MCP observation to Gemini and executes only the tool call returned by the
+model.
+
+Run it with a Gemini API key and a local task game:
+
+```sh
+GEMINI_API_KEY="$GEMINI_API_KEY" \
+RUNWAVE_GEMINI_ENDPOINT="https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" \
+python3 harness/q1k3/gemini_runner.py \
+  --config ./game/webgame.json \
+  --instructions ./instruction.md \
+  --resources ./resources \
+  --out-dir ./artifacts/gemini-run
+```
+
+Gemini's OpenAI-compatible URL can be supplied as either the base
+`.../openai` URL or the full `.../chat/completions` URL. The Runwave model
+client also accepts the same endpoint through `RUNWAVE_BASE_URL`, using
+`RUNWAVE_API_KEY` or `GEMINI_API_KEY` for authentication.
+
 
 ## Install
 

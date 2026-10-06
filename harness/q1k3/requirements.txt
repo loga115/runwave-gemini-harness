@@ -1,0 +1,7 @@
+playwright==1.51.0
+mcp==1.25.0
+httpx>=0.28,<0.29
+Pillow>=11.3,<13
+ImageHash==4.3.2
+numpy>=2.2,<3
+opencv-python-headless>=4.11,<6

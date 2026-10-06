@@ -11,6 +11,7 @@ const { normalizeSequence } = require('../src/action-parser');
 const { actionsWithinDuration, failedActionAfterInvalidJson, runAgenticPlaytest } = require('../src/agent-player');
 const {
   chatCompletion,
+  chatCompletionsUrl,
   parseJsonResponse,
   resolveApiKey,
   resolveBaseUrl,
@@ -1246,6 +1247,54 @@ test('model client sends provider-neutral requests to an OpenAI-compatible endpo
     assert.equal(requests[0].options.headers['HTTP-Referer'], undefined);
     assert.equal(requests[0].options.headers['X-Title'], undefined);
     assert.equal(JSON.parse(requests[0].options.body).model, 'explicit-custom-model');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('model client accepts a full Gemini chat-completions URL and GEMINI_API_KEY', async () => {
+  const originalFetch = global.fetch;
+  const requests = [];
+  const env = {
+    RUNWAVE_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+    GEMINI_API_KEY: 'gemini-key',
+    RUNWAVE_AGENT_MODEL: 'gemini-3.8-flash',
+    RUNWAVE_AGENT_MODEL_ATTEMPTS: '1',
+  };
+  global.fetch = async (url, options) => {
+    requests.push({ url, options });
+    return {
+      ok: true,
+      text: async () => JSON.stringify({
+        choices: [{ message: { content: '{"summary":"ok","actions":[]}' } }],
+      }),
+    };
+  };
+
+  try {
+    assert.equal(
+      chatCompletionsUrl('https://generativelanguage.googleapis.com/v1beta/openai/'),
+      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
+    );
+    assert.equal(
+      chatCompletionsUrl('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'),
+      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
+    );
+    assert.equal(resolveApiKey(env), 'gemini-key');
+    const result = await chatCompletion({
+      messages: [{ role: 'user', content: 'return JSON' }],
+      env,
+      timeoutMs: 1000,
+    });
+
+    assert.equal(result.model, 'gemini-3.8-flash');
+    assert.equal(requests.length, 1);
+    assert.equal(
+      requests[0].url,
+      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
+    );
+    assert.equal(requests[0].options.headers.Authorization, 'Bearer gemini-key');
+    assert.equal(JSON.parse(requests[0].options.body).model, 'gemini-3.8-flash');
   } finally {
     global.fetch = originalFetch;
   }

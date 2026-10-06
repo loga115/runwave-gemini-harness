@@ -235,7 +235,7 @@ async function runPlaytest(options) {
   const resolvedBaseUrl = resolveBaseUrl(env);
   const resolvedApiKey = resolveApiKey(env, resolvedBaseUrl);
   if (!resolvedApiKey) {
-    throw new Error('runPlaytest: model API key is required (set RUNWAVE_API_KEY or legacy OPENROUTER_API_KEY)');
+    throw new Error('runPlaytest: model API key is required (set RUNWAVE_API_KEY/GEMINI_API_KEY or legacy OPENROUTER_API_KEY)');
   }
   const resolvedModel = resolveModel(env, null, resolvedBaseUrl);
 

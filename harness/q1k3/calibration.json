@@ -1,0 +1,34 @@
+{
+  "baseline_scale": 0.8,
+  "ceiling": 0.98998626,
+  "floor": 0.40439668,
+  "measured_baseline": 0.50549585,
+  "provenance": {
+    "baseline_stat": "mean",
+    "ceiling_stat": "median",
+    "consecutive_gap": 1,
+    "consecutive_pairs": 30,
+    "generated": "2026-09-06",
+    "min_separation_frames": 142,
+    "min_separation_seconds": 5.0,
+    "random_pairs": 120,
+    "scoring_resolution": {
+      "height": 711,
+      "width": 1265
+    },
+    "seed": 1234,
+    "slot_baseline_frames": 60,
+    "source_video": "solution/gameplay.mp4",
+    "tool": "score-calibration/calibrate_scores.py",
+    "video_frames": 8206
+  },
+  "reference_chance": {
+    "reference_01": 0.4967759,
+    "reference_02": 0.46315161,
+    "reference_03": 0.47953514,
+    "reference_04": 0.34840621
+  },
+  "schema": "harbor-webgame/frame-calibration/1",
+  "score_profile": "phash-layout-v1",
+  "task": "q1k3"
+}
